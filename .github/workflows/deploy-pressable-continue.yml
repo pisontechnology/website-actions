@@ -37,16 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
-      - name: Authenticate Pressable API
-        id: authenticate
-        run: |
-          response=$(curl --location --request POST 'https://my.pressable.com/auth/token' \
-          --form 'grant_type="client_credentials"' \
-          --form 'client_id="${{ secrets.PRESSABLE_API_CLIENT_ID }}"' \
-          --form 'client_secret="${{ secrets.PRESSABLE_API_CLIENT_SECRET }}"')
-          access_token=$(echo $response | jq -r '.access_token')
-          echo "ACCESS_TOKEN=$access_token" >> $GITHUB_ENV
-
       - name: Download All Artifacts # Download our artifacts, may need to pass in the workflow_run_id
         uses: actions/download-artifact@v4
         id: download
