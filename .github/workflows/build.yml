@@ -26,7 +26,6 @@ on:
 jobs:
   dependency_setup:
     timeout-minutes: 10
-    if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' && ! inputs.inherit_build }}
     name: Composer Install
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
@@ -37,18 +36,16 @@ jobs:
           path: "build"
 
       - name: Authenticate Packagist
-        if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' && ! inputs.inherit_build }}
         run: echo '${{ secrets.PACKAGIST_COMPOSER_AUTH_JSON }}' > $GITHUB_WORKSPACE/build/auth.json
 
       - name: Cache Composer dependencies
-        if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' && hashFiles( './build/composer.lock' ) != '' && inputs.skip_cache == 'true' }}
+        if: ${{ hashFiles( './build/composer.lock' ) != '' && inputs.skip_cache == 'true' }}
         uses: actions/cache@v4
         with:
           path: /tmp/composer-cache
           key: ${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
 
       - name: Composer Install
-        if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' && ! inputs.inherit_build }}
         uses: php-actions/composer@v6
         with:
           working_dir: ./build
@@ -56,11 +53,10 @@ jobs:
           php_version: ${{ vars.PHP_VERSION }}
 
       - name: Remove Packagist Authentication
-        if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' }}
         run: rm -f $GITHUB_WORKSPACE/build/auth.json
 
       - name: Run custom build commands
-        if: ${{ inputs.build_commands != '' && ! inputs.inherit_build }}
+        if: ${{ inputs.build_commands != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -76,7 +72,6 @@ jobs:
           rm -rf ./build/.deployment/
 
       - name: Upload Dependencies
-        if: ${{ vars.REMOTE_PLUGIN_INSTALL == 'false' && ! inputs.inherit_build }}
         uses: actions/upload-artifact@v4
         with:
           name: composer-${{ inputs.environment }}
