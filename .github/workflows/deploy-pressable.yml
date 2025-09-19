@@ -42,24 +42,6 @@ jobs:
     timeout-minutes: 10
     environment: ${{ inputs.environment }}
     steps:    
-      - name: Authenticate Pressable API
-        id: authenticate
-        run: |
-          response=$(curl --location --request POST 'https://my.pressable.com/auth/token' \
-          --form 'grant_type="client_credentials"' \
-          --form 'client_id="${{ secrets.PRESSABLE_API_CLIENT_ID }}"' \
-          --form 'client_secret="${{ secrets.PRESSABLE_API_CLIENT_SECRET }}"')
-          access_token=$(echo $response | jq -r '.access_token')
-          echo "::add-mask::$access_token"
-          echo "access_token=$access_token" >> $GITHUB_ENV
-
-      - name: Do Backup
-        if: ${{ inputs.do_backup == 'true' && steps.authenticate.outputs.access_token }}
-        run: |
-          curl --location --request GET 'https://my.pressable.com/v1/sites/${{ vars.SITE_ID }}/ondemand-backups' \
-          --header 'Authorization: Bearer ${{ github.env.ACCESS_TOKEN }}' \
-          --header 'Content-Type: application/json' \
-
       - name: Deployment In Queue
         id: in_queue_deployment
         if: ${{ inputs.do_backup == 'true' }} # if we are not doing a backup, continue the deployment
