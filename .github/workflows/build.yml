@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 10
     name: Composer Install
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ vars.ENVIRONMENT }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
     name: Theme(s)
     timeout-minutes: 5
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ vars.ENVIRONMENT }}
     # If we are inheriting the build, or we don't have any themes
     # Skip this step in the process early, no need to loop since
     # it's more efficient to skip the whole job
