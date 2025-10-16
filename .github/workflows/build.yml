@@ -88,7 +88,7 @@ jobs:
 
   # Loop through all themes passed from inputs.themes
   theme_setup:
-    name: Theme(s)
+    name: Theme(s) ${{ inputs.environment }}
     timeout-minutes: 5
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
@@ -100,6 +100,12 @@ jobs:
       matrix:
         theme: ${{ fromJSON( vars.THEMES ) }}
     steps:
+
+      - name: Output
+        id: output_test
+        run: |
+          echo "::warning::${{ fromJSON( vars.THEMES ) }}"
+    
       # check if we have a theme to build. If None output and skip the rest of the steps.
       - name: Theme Setup
         id: individual_theme
