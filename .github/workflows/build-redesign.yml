@@ -1,0 +1,289 @@
+name: Build Project v3
+
+on:
+  workflow_call:
+    inputs:
+      skip_cache:
+        description: "Skip caching of dependency installs"
+        required: false
+        default: false
+        type: boolean
+      environment:
+        description: "Environment is used for our upload artifact"
+        type: "string"
+        required: true
+        default: "dependencies"
+      inherit_build:
+        description: "This allows projects with multiple deployments to share a build from another job, it must be provided a job ID"
+        required: false
+        type: string
+      build_commands:
+        description: "Optional additional shell commands to run during the build (multi-line)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  dependency_setup:
+    timeout-minutes: 10
+    name: Composer Install ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: "build"
+
+      - name: Authenticate Packagist
+        run: echo '${{ secrets.PACKAGIST_COMPOSER_AUTH_JSON }}' > $GITHUB_WORKSPACE/build/auth.json
+
+      - name: Cache Composer dependencies
+        if: ${{ hashFiles( './build/composer.lock' ) != '' && inputs.skip_cache == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: /tmp/composer-cache
+          key: ${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
+
+      - name: Composer Install
+        uses: php-actions/composer@v6
+        with:
+          working_dir: ./build
+          dev: no
+          php_version: ${{ vars.PHP_VERSION }}
+
+      - name: Remove Packagist Authentication
+        run: rm -f $GITHUB_WORKSPACE/build/auth.json
+
+      - name: Run custom build commands
+        if: ${{ inputs.build_commands != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_commands }}
+
+      - name: Clean Up Files/Folders
+        id: clean_composer_install
+        run: |
+          mkdir -p ./build/.deployment/
+          wget -O ./build/.deployment/cleanup.sh https://raw.githubusercontent.com/linchpin/actions/v3/.deployment/cleanup.sh
+          chmod +x ./build/.deployment/cleanup.sh
+          sh ./build/.deployment/cleanup.sh
+          rm -rf ./build/.deployment/
+
+      - name: Upload Dependencies
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-${{ inputs.environment }}
+          path: |
+            ./build
+            !./build/**/node_modules
+            !./build/auth.json
+            !./build/vendor
+            !./build/**/.git
+            !./build/**/.deployment
+          retention-days: 1
+          overwrite: true
+          include-hidden-files: true
+
+  # Loop through all themes passed from inputs.themes
+  theme_setup:
+    name: Theme(s) ${{ inputs.environment }} ${{ vars.THEMES }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    # If we are inheriting the build, or we don't have any themes
+    # Skip this step in the process early, no need to loop since
+    # it's more efficient to skip the whole job
+    if: ${{ ! inputs.inherit_build }} 
+    strategy:
+      matrix:
+        theme: ["pison-rebrand"]
+    steps:
+    
+      # check if we have a theme to build. If None output and skip the rest of the steps.
+      - name: Theme Setup
+        id: individual_theme
+        if: ${{ matrix.theme == 'none' }}
+        run: |
+          echo "::warning::Skipping Theme Build"
+
+      - name: Checkout code
+        if: ${{ matrix.theme != 'none' }} # skip this step if no themes are included.
+        uses: actions/checkout@v4
+
+      - name: Install Theme ${{ matrix.theme }} Composer Dependencies
+        if: ${{ matrix.theme != 'none' && vars.THEME_USES_COMPOSER == 'true' && hashFiles( format( 'themes/{0}/composer.lock', matrix.theme ) ) != '' }} # skip this step if no themes are included or we don't have a composer file
+        id: install-theme-composer
+        uses: php-actions/composer@v6
+        with:
+          working_dir: ./themes/${{ matrix.theme }}
+          dev: no
+          php_version: ${{ vars.PHP_VERSION }}
+
+      - name: Setup Node.js
+        if: ${{ matrix.theme != 'none' }} # skip this step if no themes are included.
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        if: ${{ matrix.theme != 'none' && hashFiles( format( 'themes/{0}/package-lock.json', matrix.theme ) ) != '' }}
+        shell: bash
+        run: echo "dir=$(npm config get cache)" >> ${GITHUB_OUTPUT}
+
+      - name: Build Theme with npm
+        if: ${{ matrix.theme != 'none' && vars.BUILD_THEME_JS != 'false' && hashFiles(format('themes/{0}/package-lock.json', matrix.theme ) ) != '' }} # skip this step if no themes are included or we tell it to skip
+        id: build-theme-npm
+        run: |
+          cd themes/${{ matrix.theme }}
+          npm config set cache $(npm config get cache)
+          npm install sass-embedded-linux-x64
+          npm install
+          npm run build
+          rm -rf node_modules
+
+      - name: Upload Theme
+        if: ${{ matrix.theme != 'none' }} # skip this step if no themes are included.
+        uses: actions/upload-artifact@v4
+        with:
+          name: theme-${{ matrix.theme }}
+          path: themes/${{ matrix.theme }}
+          retention-days: 1
+          overwrite: true
+          include-hidden-files: false
+
+  # Loop through all plugins passed from input.plugins
+  plugin_setup:
+    name: Plugin(s)
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    if: ${{ ! inputs.inherit_build || vars.PLUGINS != '["none"]' }} 
+    environment: ${{ inputs.environment }}
+    strategy:
+      matrix:
+        plugin: ${{ fromJSON( vars.PLUGINS ) }}
+    steps:
+      # check if we have a plugin to build. If None output and skip the rest of the steps.
+      - name: Plugin Setup
+        id: individual_plugin
+        if: ${{ matrix.plugin == 'none' }}
+        run: |
+          echo "::warning::Skipping Plugin Build"
+
+      - name: Checkout code
+        if: ${{ matrix.plugin != 'none' }} # skip this step if no plugina are included.
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: ${{ matrix.plugin != 'none' }} # skip this step if no plugins are included.
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        if: ${{ matrix.plugin != 'none'  }} # skip this step if no plugins are included.
+        shell: bash
+        run: echo "dir=$(npm config get cache)" >> ${GITHUB_OUTPUT}
+
+      - name: Build Plugin with npm
+        if: ${{ matrix.plugin != 'none' && hashFiles( format( 'plugins/{0}/package-lock.json', matrix.plugin ) ) != '' }} # skip this step if no plugins are included.
+        id: build-plugin-npm
+        run: |
+          cd plugins/${{ matrix.plugin }}
+          npm config set cache $(npm config get cache)
+          npm install --omit=dev
+          npm run build --production
+          rm -rf node_modules # remove node modules after the build
+
+      - name: Install Plugin Composer Dependencies
+        if: ${{ matrix.plugin != 'none' && vars.PLUGIN_USES_COMPOSER == 'true' && hashFiles( format( 'plugins/{0}/composer.lock', matrix.plugin ) ) != '' }} # skip this step if no plugins are included or we don't have a composer file
+        id: install-plugin-composer
+        uses: php-actions/composer@v6
+        with:
+          working_dir: ./plugins/${{ matrix.plugin }}
+          dev: no
+          php_version: ${{ vars.PHP_VERSION }}
+
+      - name: Upload Plugin
+        if: ${{ matrix.plugin != 'none' }} # skip this step if no plugins are included.
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.plugin }}
+          path: plugins/${{ matrix.plugin }}
+          retention-days: 1
+          overwrite: true
+          include-hidden-files: false
+
+  build:
+    name: Create Release and Cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # If we are inheriting the build from another workflow,
+    # no need to continue in the process
+    if: ${{ ! inputs.inherit_build }}
+    environment: ${{ inputs.environment }}
+    needs: [dependency_setup, theme_setup, plugin_setup]
+    steps:
+      - name: Download All Artifacts
+        id: artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./build
+          merge-multiple: false
+
+      - name: Move Theme and Plugin Artifacts to correct directory
+        id: move_downloaded_artifacts
+        run: |
+          cd build
+          # If there is a composer artifact, move its content to the root of the build directory
+          if [ -d "composer-${{ inputs.environment }}" ]; then
+              mv composer-${{ inputs.environment }}/* .;
+              rm -rf composer-${{ inputs.environment }};
+          fi;
+          # Make sure final target directories exist
+          mkdir -p themes
+          mkdir -p plugins
+          # Move built versions of themes and plugins to correct directories
+          for prefix in "theme-" "plugin-"; do
+          for d in "$prefix"*; do
+          if [ ! -d "$d" ]; then continue; fi;
+          newdir="${prefix%?}s/${d:${#prefix}:${#d}-${#prefix}}";
+          # If a directory already exists where this one is going, remove it
+          rm -rf $newdir;
+          mv $d $newdir;
+          done;
+          done;
+
+      - name: Clean Build Files/Folders
+        id: clean_build_ff
+        run: |
+          mkdir -p ./build/.deployment/
+          wget -O ./build/.deployment/cleanup.sh https://raw.githubusercontent.com/linchpin/actions/v3/.deployment/cleanup.sh
+          chmod +x ./build/.deployment/cleanup.sh
+          sh ./build/.deployment/cleanup.sh ${{ vars.REMOTE_PLUGIN_INSTALL }}
+          rm -rf ./build/.deployment/
+          mv temp_archive release         
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ ! inputs.inherit_build }}
+        with:
+          name: release
+          path: release
+          retention-days: 1
+          overwrite: true
+          include-hidden-files: false
+          
+  skip_release:
+    name: Skip Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # If we are inheriting the build from another workflow, output a message
+    if: ${{ inputs.inherit_build == 'true' }}
+    steps:
+      - name: Skip Build and Release
+        run: |
+          echo "Skipping Build and referencing release from another job"
