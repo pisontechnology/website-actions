@@ -88,14 +88,14 @@ jobs:
 
   # Loop through all themes passed from inputs.themes
   theme_setup:
-    name: "Theme(s) ${{ inputs.environment }}"
+    name: Theme(s) ${{ inputs.environment }} ${{ vars.THEMES }}
     timeout-minutes: 5
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     # If we are inheriting the build, or we don't have any themes
     # Skip this step in the process early, no need to loop since
     # it's more efficient to skip the whole job
-    if: ${{ ! inputs.inherit_build || ( vars.THEMES != '["none"]' &&  vars.THEMES != '' ) }} 
+    if: ${{ ! inputs.inherit_build && ( vars.THEMES != '["none"]' && vars.THEMES != '' ) }} 
     strategy:
       matrix:
         theme: ${{ fromJSON( vars.THEMES ) }}
