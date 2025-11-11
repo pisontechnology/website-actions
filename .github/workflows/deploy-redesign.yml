@@ -145,41 +145,13 @@ jobs:
       inherit_build: ${{ inputs.inherit_build }}
       post_deploy_command: ${{ inputs.post_deploy_command }}
 
-  deploy_wpengine:
-    name: Deploy to WP Engine
-    needs: [preflight, build]
-    if: ${{ vars.HOST == 'wpengine' }}
-    uses: ./.github/workflows/deploy-wpengine.yml
-    secrets: inherit
-    with:
-      deployment_id: ${{ needs.preflight.outputs.gh_deployment_id }}
-      workflow_run_id: ${{ github.run_id }}
-      do_backup: ${{ inputs.do_backup }}
-      environment: ${{ inputs.environment }}
-      inherit_build: ${{ inputs.inherit_build }}
-      post_deploy_command: ${{ inputs.post_deploy_command }}
-
-  deploy_cloudways:
-    name: Deploy to Cloudways
-    needs: [preflight, build]
-    if: ${{ vars.HOST == 'cloudways' }}
-    uses: ./.github/workflows/deploy-cloudways.yml
-    secrets: inherit
-    with:
-      deployment_id: ${{ needs.preflight.outputs.gh_deployment_id }}
-      workflow_run_id: ${{ github.run_id }}
-      do_backup: ${{ inputs.do_backup }}
-      environment: ${{ inputs.environment }}
-      inherit_build: ${{ inputs.inherit_build }}
-      post_deploy_command: ${{ inputs.post_deploy_command }}
-
   deploy_finish:
     name: Complete Deployment
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     if: ${{ always() && needs.preflight.outputs.gh_deployment_id != '' }} # No matter if the needs are met still finish. Could be success or fail
     needs:
-      [ preflight, deploy_pressable, deploy_wpengine, deploy_cloudways ]
+      [ preflight, deploy_pressable ]
     steps:
       - name: Set Deployment Status as Successful
         if: ${{ success() && ! inputs.do_backup && needs.preflight.outputs.gh_deployment_id != '' }} # if we are not doing a backup, continue the deployment, otherwise wait for the backup to finish
